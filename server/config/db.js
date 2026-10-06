@@ -1,11 +1,23 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import bcrypt from 'bcryptjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const dbFilePath = process.env.DB_FILE_PATH || path.join(__dirname, '..', 'database.json');
+const fallbackDbPath = path.join(__dirname, '..', 'database.json');
+const configuredDbPath = process.env.DB_FILE_PATH || process.env.SQLITE_DB_PATH || fallbackDbPath;
+const dbFilePath = configuredDbPath.toLowerCase().endsWith('.sqlite') || configuredDbPath.toLowerCase().endsWith('.db')
+  ? fallbackDbPath
+  : path.resolve(configuredDbPath);
+
+if (dbFilePath.includes(path.sep)) {
+  const dbDirectory = path.dirname(dbFilePath);
+  if (!fs.existsSync(dbDirectory)) {
+    fs.mkdirSync(dbDirectory, { recursive: true });
+  }
+}
 
 // In-memory data store with file persistence
 let store = {
@@ -43,7 +55,55 @@ function saveStore() {
   }
 }
 
+function ensureSeedUsers() {
+  const seedUsers = [
+    {
+      name: 'Inspector Jane Doe',
+      email: 'jane.doe@qualisight.ai',
+      password: 'SecurePassword123',
+      role: 'lead_inspector'
+    },
+    {
+      name: 'Lead QC Auditor',
+      email: 'judge.inspector@qualisight.ai',
+      password: 'Password@123',
+      role: 'lead_inspector'
+    }
+  ];
+
+  let changed = false;
+
+  for (const seed of seedUsers) {
+    const existing = store.users.find((user) => user.email.toLowerCase() === seed.email.toLowerCase());
+
+    if (!existing) {
+      store.users.push({
+        id: store.nextUserId++,
+        name: seed.name,
+        email: seed.email.toLowerCase(),
+        password: bcrypt.hashSync(seed.password, 10),
+        role: seed.role,
+        created_at: new Date().toISOString()
+      });
+      changed = true;
+      continue;
+    }
+
+    const passwordMatches = bcrypt.compareSync(seed.password, existing.password);
+    if (!passwordMatches) {
+      existing.password = bcrypt.hashSync(seed.password, 10);
+      existing.role = existing.role || seed.role;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    saveStore();
+  }
+}
+
 loadStore();
+ensureSeedUsers();
 
 export const query = {
   run: async (sql, params = []) => {

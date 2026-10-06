@@ -1,0 +1,29 @@
+========================================
+SOLUTION DESCRIPTION
+========================================
+
+QualiSight is an AI-powered Computer Vision platform designed to automate visual inspection and quality analysis. The application allows users to submit visual data for inspection, which is processed through an AI-powered visual analysis pipeline.
+
+The system analyzes the submitted visual data to identify defects, anomalies, and potential quality issues. It evaluates the detected issues and presents the inspection results in a structured dashboard, including severity information and actionable remediation insights.
+
+The platform also maintains inspection history and provides visual intelligence through key metrics and inspection telemetry, allowing users to monitor inspection outcomes and make faster and more consistent decisions.
+
+
+========================================
+AI INTEGRATION
+========================================
+
+The application integrates a vision-capable AI model/API into the backend processing pipeline. When visual data is submitted, the backend securely sends the required visual information to the AI service for analysis. The AI analyzes the visual content and identifies relevant defects, anomalies, or quality issues. The returned analysis is processed by the application and presented to the user as structured inspection results and actionable insights.
+
+
+========================================
+KEY FEATURES
+========================================
+
+1. AI-powered visual inspection
+2. Visual defect and anomaly detection
+3. Severity analysis
+4. Actionable remediation insights
+5. Inspection dashboard
+6. Inspection history
+7. Visual inspection telemetry

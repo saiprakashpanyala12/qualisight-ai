@@ -8,7 +8,19 @@ async function testAll() {
   const healthData = await healthRes.json();
   console.log('Health:', healthData);
 
-  console.log('\n2. Testing User Login...');
+  console.log('\n2. Testing User Registration & Login...');
+  try {
+    await fetch(`${baseURL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Inspector Jane Doe',
+        email: 'jane.doe@qualisight.ai',
+        password: 'SecurePassword123'
+      })
+    });
+  } catch {}
+
   const loginRes = await fetch(`${baseURL}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

@@ -12,9 +12,10 @@ node_modules/
 dist/
 client/dist/
 
-# SQLite Database
+# SQLite & Local JSON Database
 *.sqlite
 *.sqlite-journal
+server/database.json
 
 # Uploaded inspection files
 server/uploads/*

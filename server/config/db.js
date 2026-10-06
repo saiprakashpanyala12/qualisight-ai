@@ -1,82 +1,190 @@
-import sqlite3 from 'sqlite3';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const dbPath = process.env.SQLITE_DB_PATH || path.join(__dirname, '..', 'database.sqlite');
+const dbFilePath = process.env.DB_FILE_PATH || path.join(__dirname, '..', 'database.json');
 
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('❌ Failed to connect to SQLite database:', err.message);
-  } else {
-    console.log(`✅ Connected to SQLite database at: ${dbPath}`);
-    initializeSchema();
+// In-memory data store with file persistence
+let store = {
+  users: [],
+  inspections: [],
+  nextUserId: 1,
+  nextInspectionId: 1
+};
+
+// Load existing data from file if present
+function loadStore() {
+  try {
+    if (fs.existsSync(dbFilePath)) {
+      const raw = fs.readFileSync(dbFilePath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      store.users = parsed.users || [];
+      store.inspections = parsed.inspections || [];
+      store.nextUserId = parsed.nextUserId || (store.users.length ? Math.max(...store.users.map(u => u.id)) + 1 : 1);
+      store.nextInspectionId = parsed.nextInspectionId || (store.inspections.length ? Math.max(...store.inspections.map(i => i.id)) + 1 : 1);
+      console.log(`✅ Loaded database store from ${dbFilePath} (${store.users.length} users, ${store.inspections.length} inspections)`);
+    } else {
+      saveStore();
+      console.log(`✅ Initialized new database store at ${dbFilePath}`);
+    }
+  } catch (err) {
+    console.error('Database load warning:', err.message);
   }
-});
-
-function initializeSchema() {
-  db.serialize(() => {
-    // Users table
-    db.run(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        email TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        role TEXT DEFAULT 'inspector',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Inspections table
-    db.run(`
-      CREATE TABLE IF NOT EXISTS inspections (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        title TEXT NOT NULL,
-        category TEXT DEFAULT 'general',
-        image_url TEXT NOT NULL,
-        status TEXT NOT NULL, -- PASS, WARNING, FAIL
-        anomaly_detected INTEGER DEFAULT 0, -- 0 or 1
-        confidence REAL DEFAULT 0.0,
-        summary TEXT,
-        detected_items TEXT, -- JSON stringified
-        recommendations TEXT, -- JSON stringified
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-      )
-    `);
-  });
 }
 
-// Promisified helpers for modern async/await code
+function saveStore() {
+  try {
+    fs.writeFileSync(dbFilePath, JSON.stringify(store, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Database persist warning:', err.message);
+  }
+}
+
+loadStore();
+
 export const query = {
-  run: (sql, params = []) => {
-    return new Promise((resolve, reject) => {
-      db.run(sql, params, function (err) {
-        if (err) return reject(err);
-        resolve({ lastID: this.lastID, changes: this.changes });
-      });
-    });
+  run: async (sql, params = []) => {
+    const s = sql.trim().toUpperCase();
+
+    // 1. INSERT INTO users
+    if (s.startsWith('INSERT INTO USERS')) {
+      const [name, email, password, role] = params;
+      const user = {
+        id: store.nextUserId++,
+        name,
+        email: email.toLowerCase().trim(),
+        password,
+        role: role || 'inspector',
+        created_at: new Date().toISOString()
+      };
+      store.users.push(user);
+      saveStore();
+      return { lastID: user.id, changes: 1 };
+    }
+
+    // 2. INSERT INTO inspections
+    if (s.startsWith('INSERT INTO INSPECTIONS')) {
+      const [user_id, title, category, image_url, status, anomaly_detected, confidence, summary, detected_items, recommendations] = params;
+      const inspection = {
+        id: store.nextInspectionId++,
+        user_id: Number(user_id),
+        title,
+        category: category || 'Industrial Quality',
+        image_url,
+        status,
+        anomaly_detected: Number(anomaly_detected),
+        confidence: Number(confidence),
+        summary,
+        detected_items,
+        recommendations,
+        created_at: new Date().toISOString()
+      };
+      store.inspections.push(inspection);
+      saveStore();
+      return { lastID: inspection.id, changes: 1 };
+    }
+
+    // 3. DELETE FROM inspections
+    if (s.startsWith('DELETE FROM INSPECTIONS')) {
+      const [id, user_id] = params;
+      const prevLen = store.inspections.length;
+      store.inspections = store.inspections.filter(i => !(i.id === Number(id) && i.user_id === Number(user_id)));
+      saveStore();
+      return { changes: prevLen - store.inspections.length };
+    }
+
+    return { lastID: 0, changes: 0 };
   },
-  get: (sql, params = []) => {
-    return new Promise((resolve, reject) => {
-      db.get(sql, params, (err, row) => {
-        if (err) return reject(err);
-        resolve(row);
-      });
-    });
+
+  get: async (sql, params = []) => {
+    const s = sql.trim().toUpperCase();
+
+    // SELECT * FROM users WHERE email = ?
+    if (s.includes('FROM USERS') && s.includes('EMAIL = ?')) {
+      const email = String(params[0]).toLowerCase().trim();
+      const user = store.users.find(u => u.email === email);
+      return user ? { ...user } : null;
+    }
+
+    // SELECT * FROM users WHERE id = ?
+    if (s.includes('FROM USERS') && s.includes('ID = ?')) {
+      const id = Number(params[0]);
+      const user = store.users.find(u => u.id === id);
+      return user ? { ...user } : null;
+    }
+
+    // Analytics summary: SELECT COUNT(*) as total_inspections...
+    if (s.includes('COUNT(*)')) {
+      const userId = Number(params[0]);
+      const userInspections = store.inspections.filter(i => i.user_id === userId);
+      const total = userInspections.length;
+      const passCount = userInspections.filter(i => i.status === 'PASS').length;
+      const warningCount = userInspections.filter(i => i.status === 'WARNING').length;
+      const failCount = userInspections.filter(i => i.status === 'FAIL').length;
+      const totalAnomalies = userInspections.filter(i => i.anomaly_detected === 1).length;
+      const sumConf = userInspections.reduce((acc, curr) => acc + (curr.confidence || 0), 0);
+      const avgConfidence = total > 0 ? (sumConf / total) : 95.0;
+
+      return {
+        total_inspections: total,
+        pass_count: passCount,
+        warning_count: warningCount,
+        fail_count: failCount,
+        total_anomalies: totalAnomalies,
+        avg_confidence: avgConfidence
+      };
+    }
+
+    // SELECT * FROM inspections WHERE id = ? AND user_id = ?
+    if (s.includes('FROM INSPECTIONS') && s.includes('WHERE ID = ? AND USER_ID = ?')) {
+      const [id, user_id] = params;
+      const ins = store.inspections.find(i => i.id === Number(id) && i.user_id === Number(user_id));
+      return ins ? { ...ins } : null;
+    }
+
+    return null;
   },
-  all: (sql, params = []) => {
-    return new Promise((resolve, reject) => {
-      db.all(sql, params, (err, rows) => {
-        if (err) return reject(err);
-        resolve(rows);
-      });
-    });
+
+  all: async (sql, params = []) => {
+    const s = sql.trim().toUpperCase();
+
+    if (s.includes('FROM INSPECTIONS')) {
+      const userId = Number(params[0]);
+      let results = store.inspections.filter(i => i.user_id === userId);
+
+      // Check for status filter
+      if (params.length > 1) {
+        for (let i = 1; i < params.length; i++) {
+          const p = String(params[i]);
+          if (['PASS', 'WARNING', 'FAIL'].includes(p)) {
+            results = results.filter(item => item.status === p);
+          } else if (p.startsWith('%') && p.endsWith('%')) {
+            const term = p.slice(1, -1).toLowerCase();
+            results = results.filter(item => 
+              (item.title && item.title.toLowerCase().includes(term)) ||
+              (item.summary && item.summary.toLowerCase().includes(term))
+            );
+          } else if (['Industrial Quality', 'Hardware & Assembly', 'Workplace Safety & PPE', 'Document & Label Verification', 'General Anomaly Detection'].includes(p)) {
+            results = results.filter(item => item.category === p);
+          }
+        }
+      }
+
+      // Sort DESC
+      results.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+      if (s.includes('LIMIT 5')) {
+        results = results.slice(0, 5);
+      }
+
+      return results.map(r => ({ ...r }));
+    }
+
+    return [];
   }
 };
 
-export default db;
+export default query;

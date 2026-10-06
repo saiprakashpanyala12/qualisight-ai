@@ -1,0 +1,23 @@
+{
+  "name": "qualisight-ai",
+  "version": "1.0.0",
+  "description": "Enterprise Visual Intelligence & Anomaly Detection Platform",
+  "scripts": {
+    "dev:server": "cd server && npm run dev",
+    "dev:client": "cd client && npm run dev",
+    "start:server": "cd server && npm start",
+    "build:client": "cd client && npm run build",
+    "install:all": "cd server && npm install && cd ../client && npm install",
+    "test:e2e": "node test_e2e.mjs"
+  },
+  "keywords": [
+    "computer-vision",
+    "visual-intelligence",
+    "anomaly-detection",
+    "gemini-vision",
+    "defect-detection",
+    "hackathon"
+  ],
+  "author": "QualiSight AI Team",
+  "license": "MIT"
+}
